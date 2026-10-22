@@ -112,13 +112,15 @@ def data(d, span: str = "today") -> dict:
     elif not login:
         head, sub, tone = "Friday is not started.", "Connect her Gmail first.", "stop"
     elif out_b:
-        head, sub, tone = f"Stopped. {out_b[0]['name'].lower()} used up.", f"She starts again at {RESUMES}, or you can raise the limit in Settings.", "stop"
+        head, sub, tone = f"Stopped: {out_b[0]['name'].lower()} used up.", f"She starts again at {RESUMES}, or you can raise the limit in Settings.", "stop"
     elif blocker:
         head, sub, tone = "Waiting for you.", blocker, "you"
     else:
         head, sub, tone = "Friday is working.", "She reads boards once a day, scores, and writes drafts. She sends only what you approve.", "work"
     tl = timeline(d, span)
     n = needs(d, blocker, {})
-    return {"updated": d.clock(), "state": {"head": head, "sub": sub, "tone": tone, "paused": st_paused}, "log": log(d), "needs": n,
+    board = d.cached("board", 20, d.board.page_data)
+    needs_companies = sum(1 for c in board["companies"] if c["needs"])
+    return {"updated": d.clock(), "state": {"head": head, "sub": sub, "tone": tone, "paused": st_paused}, "log": log(d), "needs": n, "needs_companies": needs_companies,
             "needs_mins": sum(x["mins"] for x in n), "budgets": bud, "setup": setup(d), "setup_left": len(todo), "timeline": tl,
             "health": {"ok": login and not st_paused, "text": "Gmail login saved. CV and job boards read." if login else "Gmail is not connected."}}

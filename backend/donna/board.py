@@ -211,8 +211,8 @@ class Board:
         if e["applied"]:
             how = e["applied"][0]
             return "applied", {"sheet": "Your sheet marks it as applied.", "form": "You marked the form card as applied."}.get(how, "Marked as applied."), False
-        if e["drafts"] or e["form"]:
-            return "draft_ready", "A draft or an apply card is waiting for you.", False
+        if e["drafts"]:
+            return "draft_ready", "A draft is waiting for you.", False
         if e["jobs"]:
             return "roles_found", f"{e['jobs']} open role{'s' if e['jobs'] != 1 else ''} found.", False
         if registrable(u["domain"]) in blocked:
@@ -257,7 +257,7 @@ class Board:
                               (status, auto, int(unconf), reason, u["name"][:120], now, k))
                     c.execute("INSERT INTO company_log(key, ts, status, reason, by) VALUES(?, ?, ?, ?, ?)", (k, now, status, reason, by))
                     changes += 1
-                else:
+                elif old["auto"] != auto or old["name"] != u["name"][:120]:      # no write for a row that did not change
                     c.execute("UPDATE company_status SET auto=?, name=? WHERE key=?", (auto, u["name"][:120], k))
         self._uni, self._ev = uni, ev
         return {"companies": len(uni), "changes": changes}
@@ -353,10 +353,16 @@ class Board:
         e = e or {}
         status = r["status"]
         title, why = NEXT[status]
+        label, tone = ("Rejected?" if r["unconfirmed"] else LABEL[status]), ("amber" if r["unconfirmed"] else TONE[status])
         if r["unconfirmed"]:
             title, why = "Confirm or dismiss the rejection", "A reply has rejection wording. Friday is not sure."
+        elif status in ("roles_found", "not_checked", "no_roles") and e.get("failed"):
+            label, tone, title, why = "Stopped by the check", "amber", "Check the words in the draft", "The draft names facts Friday cannot back up. Tick the true ones."
+        elif status in ("roles_found", "not_checked", "no_roles") and e.get("form"):
+            label, tone, title, why = "Needs a form", "amber", "Apply on their site", "No hiring address is published. Friday prepared the answers."
+        needs = bool(r["unconfirmed"] or status in ("draft_ready", "reply", "interview", "offer") or e.get("failed") or e.get("form")) and status not in ("rejected", "not_interested", "blocklisted", "applied")
         return {"id": r["id"], "name": r["name"], "country": u.get("country", ""), "source": ", ".join(u.get("sources", [])[:3]),
-                "status": status, "label": "Rejected?" if r["unconfirmed"] else LABEL[status], "tone": "amber" if r["unconfirmed"] else TONE[status],
+                "status": status, "label": label, "tone": tone, "needs": needs,
                 "unconfirmed": bool(r["unconfirmed"]), "hand": r["hand"], "roles": e.get("jobs", 0), "best": e.get("best"), "next": title, "why": why,
                 "reason": r["reason"], "changed_ts": r["changed_ts"], "note": r["note"], "failed": e.get("failed", 0), "warm": getattr(self, "_warm", {}).get(r["key"], 0),
                 "grade": ("" if e.get("best") is None else "A" if e["best"] >= 80 else "B" if e["best"] >= 70 else "C" if e["best"] >= 60 else ""), "fit": e.get("best") is not None, "s70": (e.get("best") or 0) >= 70, "step": self._step(status, e)}
@@ -424,9 +430,15 @@ class Board:
         u, e = self._uni.get(k), self._ev.get(k)
         out = self._view(r, u, e)
         scores = self.d.scorer.table()
-        out["roles"] = [{"id": j["id"], "title": j["title"], "location": j["location"], "url": j["job_url"], "score": (scores.get(j["id"]) or {}).get("total"),
-                         "state": (scores.get(j["id"]) or {}).get("state", ""), "why": (scores.get(j["id"]) or {}).get("why", "")}
-                        for j in self.d.job_fetch.store.live() if key_of(j["company"]) == k][:30]
+        from .score import TITLE_KEYWORDS, title_ok
+        wanted = self.d.scorer.pref_list("prefs:titles") or list(TITLE_KEYWORDS)
+        mine = [j for j in self.d.job_fetch.store.live_of(k) if key_of(j["company"]) == k]
+        roles = [{"id": j["id"], "title": j["title"], "location": j["location"], "url": j["job_url"], "score": (scores.get(j["id"]) or {}).get("total"),
+                  "state": (scores.get(j["id"]) or {}).get("state", ""), "why": (scores.get(j["id"]) or {}).get("why", ""),
+                  "match": title_ok(j["title"], "", wanted)} for j in mine]
+        roles.sort(key=lambda x: (not x["match"], -(x["score"] if x["score"] is not None else -1)))
+        out["roles_total"] = len(roles)
+        out["roles"] = roles[:60]
         out["drafts"] = [{"subject": o["subject"], "state": o["state"], "created": o["created"]}
                          for o in db.query("SELECT subject, state, created FROM outbox WHERE company_norm=? ORDER BY id DESC LIMIT 10", (k,))]
         out["sent"] = [{"subject": o["subject"], "sent_ts": o["sent_ts"]}

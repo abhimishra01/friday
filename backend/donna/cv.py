@@ -374,6 +374,26 @@ class CV:
                       (kind, text, int(self.d.clock())))
         return {"ok": True}
 
+    def repeats(self) -> list[int]:
+        """Ids of group rows ("Languages: Python, Go") whose every item is already its own fact of the same kind. The single facts keep
+        their ticks, so removing the group row never changes what Friday may claim (DJ14LF)."""
+        facts = self.facts()
+        singles = {(f["kind"], f["text"].strip().lower()) for f in facts if not re.search(r"[,;:]", f["text"])}
+        out = []
+        for f in facts:
+            if not re.search(r"[,;:]", f["text"]):
+                continue
+            body = f["text"].split(":", 1)[1] if ":" in f["text"] else f["text"]
+            items = [i.strip().lower() for i in re.split(r"[,;]", body) if i.strip()]
+            if len(items) >= 2 and all((f["kind"], i) in singles for i in items):
+                out.append(f["id"])
+        return out
+
+    def merge_repeats(self) -> int:
+        ids = self.repeats()
+        with self.d.db.tx() as c:
+            return sum(c.execute("DELETE FROM cv_facts WHERE id=?", (i,)).rowcount for i in ids)
+
     def remove_fact(self, fact_id: int) -> bool:
         with self.d.db.tx() as c:
             return c.execute("DELETE FROM cv_facts WHERE id=?", (int(fact_id),)).rowcount == 1
@@ -391,4 +411,5 @@ class CV:
 
     def page_data(self) -> dict:
         facts = self.facts()
-        return {"cv": self.meta(), "facts": facts, "ticked": sum(1 for f in facts if f["ticked"]), "kinds": list(KINDS)}
+        repeats = len(self.repeats())
+        return {"cv": self.meta(), "facts": facts, "ticked": sum(1 for f in facts if f["ticked"]), "kinds": list(KINDS), "repeats": repeats}

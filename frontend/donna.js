@@ -6,7 +6,7 @@
 (function () {
   var U = window.BotsUtil, B = window.Bots;
   var SECTIONS = [["today", "Today"], ["companies", "Companies"], ["wait", "Waiting for you"], ["forms", "Apply by form"], ["hand", "Search by hand"], ["jobs", "Jobs found"], ["profile", "Profile review"], ["cv", "CV facts"], ["boards", "Boards"], ["sheets", "Sheets"], ["settings", "Settings"]];
-  var S = { section: "today", status: null, outbox: { waiting: [], recent: [] }, cards: { forms: [], search: [] }, jobs: [], profile: null, cv: null, dataset: null, cboard: null, command: null, span: "today", cstep: "", ctab: "all", cgrade: "", cpage: 0, cfilter: "all", cq: "", cstatus: "", ccountry: "", csort: "needs", copen: 0, cdetail: null, sheets: { sheets: [], tracked: [], blocked_today: [], fields: {} },
+  var S = { section: "today", status: null, outbox: { waiting: [], recent: [] }, cards: { forms: [], search: [] }, jobs: [], profile: null, cv: null, dataset: null, cboard: null, command: null, heavyAt: 0, span: "today", cstep: "", ctab: "all", cgrade: "", cpage: 0, cfilter: "all", cq: "", cstatus: "", ccountry: "", csort: "needs", copen: 0, cdetail: null, sheets: { sheets: [], tracked: [], blocked_today: [], fields: {} },
             boards: [], settings: null, events: [], blocklist: "", notice: "", needok: {}, off: false, err: "", loaded: false, busy: {}, undo: {}, edit: {}, fresh: {}, maybe: false, jobsAll: false,
             boardFilter: "active", lastLoad: 0, paper: false, bound: false, started: false, timer: null, onChange: null, shown: false, note: "", sample: null };
 
@@ -96,12 +96,29 @@
   }
 
   /* ---------- data ---------- */
+  /* The first view needs only the core calls. The heavy ones (jobs, profile, CV, settings, boards, sheets ...) load when a screen that uses them opens
+     and then at most once a minute (DJ14LF: the first view stays under 2 seconds). */
+  var CORE = [["status", ""], ["outbox", "/outbox"], ["cards", "/cards"], ["cboard", "/board"], ["command", null], ["digest", "/digest"]];
+  var HEAVY = [["jobs", "/jobs?limit=300"], ["profile", "/profile"], ["cv", "/cv"], ["dataset", "/dataset"], ["boards", "/boards"], ["settings", "/settings"], ["events", "/events"], ["blocklist", "/blocklist"], ["sheets", "/sheets"]];
+  var LIGHT_SECTIONS = ["today", "companies", "company", "wait"];
+    /* One load at a time: a second call while one is running gets the same promise (DJ14LG). The first render, the change hook and the
+     poller used to start the same calls two or three times. */
+  var pending = null;
   function load() {
-    return Promise.all([call("GET", ""), call("GET", "/outbox"), call("GET", "/cards"), call("GET", "/jobs?limit=300"), call("GET", "/profile"), call("GET", "/cv"),
-                        call("GET", "/dataset"), call("GET", "/boards"), call("GET", "/settings"), call("GET", "/events"), call("GET", "/blocklist"), call("GET", "/sheets"), call("GET", "/board"), call("GET", "/command?span=" + S.span), call("GET", "/digest")]).then(function (r) {
+    if (pending) return pending;
+    pending = loadNow().then(function (v) { pending = null; return v; }, function (e) { pending = null; throw e; });
+    return pending;
+  }
+  function loadNow() {
+    var heavy = LIGHT_SECTIONS.indexOf(S.section) < 0 && Date.now() - S.heavyAt > 60000;
+    var calls = CORE.map(function (x) { return call("GET", x[1] === null ? "/command?span=" + S.span : x[1]); });
+    if (heavy) HEAVY.forEach(function (x) { calls.push(call("GET", x[1])); });
+    return Promise.all(calls).then(function (r) {
       S.loaded = true; S.off = false; S.err = "";
-      S.status = r[0]; S.outbox = r[1]; S.cards = r[2]; S.jobs = r[3]; S.profile = r[4]; S.cv = r[5]; S.dataset = r[6]; S.boards = r[7]; S.settings = r[8]; S.events = r[9]; S.blocklist = (r[10] && r[10].text) || ""; S.cboard = r[12]; S.command = r[13]; S.digest = r[14];
-      if (S.copen && S.section === "company") call("GET", "/board/" + S.copen).then(function (x) { S.cdetail = x; draw(); }); S.sheets = r[11] || S.sheets; S.lastLoad = Date.now();
+      CORE.forEach(function (x, i) { S[x[0]] = r[i]; });
+      if (heavy) { HEAVY.forEach(function (x, i) { var v = r[CORE.length + i]; S[x[0]] = x[0] === "blocklist" ? ((v && v.text) || "") : (v || S[x[0]]); }); S.heavyAt = Date.now(); }
+      if (S.copen && S.section === "company") call("GET", "/board/" + S.copen).then(function (x) { S.cdetail = x; draw(); });
+      S.lastLoad = Date.now();
       var t = Date.now();
       (S.outbox.waiting || []).forEach(function (x) { if (x.state === "undo") { var k = S.undo[x.id]; if (!k || k.stale) S.undo[x.id] = { until: t + (x.undo_left || 0) * 1000 }; } else delete S.undo[x.id]; if (x.state !== "waiting" && x.state !== "held") delete S.needok[x.id]; });
       if (S.onChange) S.onChange();
@@ -334,7 +351,7 @@
     h += '<label class="dn-file-btn dn-btn" for="dn-cvfile">' + (m ? "Replace the CV" : "Choose a PDF") + '</label><input id="dn-cvfile" class="vh" type="file" accept="application/pdf" data-dn-file="cv" data-fk="cvfile">' + (S.busy.cv ? '<span class="dn-dim"> Reading the file…</span>' : "");
     if (m && !facts.length) h += '<details class="dn-more" open><summary>The PDF has no readable text</summary><p class="dn-dim">Paste the text of your CV here.</p><label class="dn-l">CV text<textarea rows="6" maxlength="60000" data-dn-cvtext="1" data-fk="cvtext"></textarea></label><button type="button" class="dn-btn" data-dn-act="cvtext" data-fk="cvtext-go">Use this text</button></details>';
     if (facts.length) {
-      h += '<p class="dn-dim"><b>' + (c.ticked || 0) + "</b> of " + facts.length + ' facts ticked.</p><div class="dn-btns"><button type="button" class="dn-btn small" data-dn-act="tickall" data-ticked="1" data-fk="tick-all">Tick all</button><button type="button" class="dn-btn small" data-dn-act="tickall" data-ticked="0" data-fk="tick-none">Untick all</button></div>';
+      h += '<p class="dn-dim"><b>' + (c.ticked || 0) + "</b> of " + facts.length + ' facts ticked.</p><div class="dn-btns">' + (c.repeats ? '<button type="button" class="dn-btn small" data-dn-act="mergefacts" data-fk="merge-facts">Merge ' + c.repeats + " repeated rows</button>" : "") + '<button type="button" class="dn-btn small" data-dn-act="tickall" data-ticked="1" data-fk="tick-all">Tick all</button><button type="button" class="dn-btn small" data-dn-act="tickall" data-ticked="0" data-fk="tick-none">Untick all</button></div>';
       (c.kinds || Object.keys(KIND)).forEach(function (k) {
         var fs = facts.filter(function (f) { return f.kind === k; });
         if (!fs.length) return;
@@ -352,7 +369,7 @@
     var d = S.dataset || {}, by = d.by_state || {}, filt = S.boardFilter;
     var list = (S.boards || []).filter(function (b) { return filt === "all" || b.state === filt; });
     var h = '<section class="dn-card" aria-labelledby="dn-h-boards"><h2 id="dn-h-boards" tabindex="-1">Companies and boards</h2><p class="dn-dim">Friday reads the job boards of these companies once a day. "Moved" means the board is gone and she is looking for the new one.</p>';
-    h += '<p class="dn-counts">' + [["active", "On"], ["watch", "Watching"], ["moved", "Moved"], ["off", "Off"]].map(function (s) { return "<span><b>" + (by[s[0]] || 0) + "</b> " + s[1] + "</span>"; }).join("") + "<span><b>" + (d.companies || 0) + "</b> companies in your list</span></p>";
+    h += '<p class="dn-counts">' + [["active", "On"], ["watch", "Watching"], ["moved", "Moved"], ["off", "Off"]].map(function (s) { return "<span><b>" + (by[s[0]] || 0) + "</b> " + s[1] + "</span>"; }).join("") + "<span><b>" + (d.boards || 0) + "</b> job boards in all</span><span>The Companies page lists <b>" + ((S.cboard && S.cboard.companies) ? S.cboard.companies.length : (d.companies || 0)) + "</b> companies. A company has a board only when its careers link is on a known job site.</span></p>";
     if (!(d.boards > 0)) h += '<p class="dn-empty"><b>No boards yet.</b> Add a list of companies from a CSV file or a sheet on the Sheets page.</p>' + ((S.status && S.status.has_seed) ? '<button type="button" class="dn-go" data-dn-act="seed" data-fk="seed"' + (S.busy.seed ? " disabled" : "") + ">" + (S.busy.seed ? "Adding…" : "Add the starter companies") + "</button>" : "");
     else {
       h += '<div class="dn-filter" role="group" aria-label="Show boards">' + [["active", "On"], ["watch", "Watching"], ["moved", "Moved"], ["off", "Off"], ["all", "All"]].map(function (s) { return '<button type="button" class="dn-btn small" aria-pressed="' + (filt === s[0]) + '" data-dn-act="bfilter" data-to="' + s[0] + '" data-fk="bf-' + s[0] + '">' + s[1] + "</button>"; }).join("") + "</div>";
@@ -417,7 +434,13 @@
     if (S.cfilter === "stopped" || S.cstep === "stopped") return "No stopped drafts. Good.";
     if (S.cfilter === "needs") return "Nothing needs you right now. Good.";
     if (S.cfilter === "replied") return "No replies yet. Friday checks Gmail after each daily run.";
-    if (S.cstep === "sent") return "Nothing sent yet. Nothing goes out until you press Approve.";
+    if (S.cstep === "sent" || S.ctab === "sent") return "Nothing sent yet. Nothing goes out until you press Approve.";
+    if (S.ctab === "needs") return "Nothing needs you right now. Good.";
+    if (S.ctab === "stopped") return "No stopped companies. Good.";
+    if (S.ctab === "replied") return "No replies yet. Friday looks in Gmail after each daily run.";
+    if (S.ctab === "closed") return "Nothing is closed yet.";
+    if (S.ctab === "watch") return "Friday is not watching any company yet. Add a sheet or the starter companies.";
+    if (S.cgrade) return "No company has fit " + S.cgrade + " yet. Friday scores a role after she reads the board.";
     return "No company is in this group.";
   }
   function funnelHtml() {
@@ -456,7 +479,7 @@
     else h += '<ul class="dn-clist">' + rows.slice(pg * PAGE, pg * PAGE + PAGE).map(cRow).join("") + "</ul>";
     if (rows.length > PAGE) h += '<div class="dn-pager"><button type="button" class="dn-btn small" data-dn-act="cpage" data-to="-1" data-fk="pg-prev"' + (pg ? "" : " disabled") + '>Previous 50</button><span class="dn-dim">' + (pg * PAGE + 1) + " to " + Math.min(rows.length, pg * PAGE + PAGE) + " of " + rows.length + '</span><button type="button" class="dn-btn small" data-dn-act="cpage" data-to="1" data-fk="pg-next"' + (pg < pages - 1 ? "" : " disabled") + ">Next 50</button></div>";
     h += "</div>" + cPanel() + "</div>";
-    h += '<div class="dn-btns"><button type="button" class="dn-btn small" data-dn-act="creplies" data-fk="co-replies"' + (S.busy.creplies ? " disabled" : "") + ">" + (S.busy.creplies ? "Reading Gmail…" : "Check for replies now") + "</button></div>";
+    h += '<div class="dn-btns"><button type="button" class="dn-btn small" data-dn-act="creplies" data-fk="co-replies"' + (S.busy.creplies ? " disabled" : "") + ">" + (S.busy.creplies ? "Reading Gmail…" : "Look for replies") + "</button></div>";
     return h + "</section>";
   }
   function digestHtml() {
@@ -545,7 +568,7 @@
   /* ---------- the page ---------- */
   /* ---------- Friday's page, sample E (DJ14L): Today, Companies, one company. Light only. ---------- */
   var MORE = [["forms", "Apply by form"], ["hand", "Search by hand"], ["jobs", "Jobs found"], ["profile", "Profile review"], ["cv", "CV facts"], ["boards", "Boards"], ["sheets", "Sheets"], ["settings", "Settings"]];
-  var TABS = [["all", "All", null], ["needs", "Needs you", ["draft_ready", "reply", "interview", "offer"]], ["watch", "Watching", ["not_checked", "checking", "no_roles", "roles_found"]],
+  var TABS = [["all", "All", null], ["needs", "Needs you", null], ["watch", "Watching", ["not_checked", "checking", "no_roles", "roles_found"]],
               ["sent", "Sent", ["applied"]], ["replied", "Replied", ["reply", "interview", "offer"]], ["stopped", "Stopped", ["site_blocked", "blocklisted"]], ["closed", "Closed", ["rejected", "not_interested"]]];
   function gradeBadge(g, big) { return '<span class="e-grade ' + (g || "N") + (big ? " big" : "") + '" aria-label="' + (g ? "Fit " + g : "Not scored") + '">' + (g || "–") + "</span>"; }
   function eChip(c) { var t = c.tone; return '<span class="e-chip ' + (c.unconfirmed ? "check" : t === "amber" ? "check" : t === "green" ? "ready" : t === "red" ? "stop" : "working") + '">' + E(c.label) + "</span>"; }
@@ -559,7 +582,7 @@
   function nav() {
     var c = counts();
     var h = '<nav class="e-nav" aria-label="Friday"><div class="e-tabs">' + SECTIONS.slice(0, 3).map(function (x) {
-      var n = x[0] === "wait" ? c.wait : x[0] === "today" ? ((S.command && S.command.needs) || []).length : 0;
+      var n = x[0] === "wait" ? c.wait : x[0] === "today" || x[0] === "companies" ? (S.command ? S.command.needs_companies : 0) : 0;
       var cur = S.section === x[0] || (x[0] === "companies" && S.section === "company");
       return '<button type="button" class="e-tab" data-dn-act="goto" data-to="' + x[0] + '" data-fk="tab-' + x[0] + '"' + (cur ? ' aria-current="page"' : "") + ">" + x[1] + (n ? ' <span class="e-n">' + n + "</span>" : "") + "</button>";
     }).join("") + '</div><div class="e-more" aria-label="More">' + MORE.map(function (x) {
@@ -568,18 +591,17 @@
     return h;
   }
   function updatedLine() {
-    var t = new Date(S.lastLoad || Date.now()), hm = String(t.getHours()).padStart(2, "0") + ":" + String(t.getMinutes()).padStart(2, "0");
-    return '<p class="e-fresh" role="status"><i class="' + (S.command && S.command.health.ok ? "ok" : "bad") + '" aria-hidden="true"></i>Updated ' + hm + ". " + E(S.command ? S.command.health.text : "") + "</p>";
+    return '<p class="e-fresh" role="status"><i class="' + (S.command && S.command.health.ok ? "ok" : "bad") + '" aria-hidden="true"></i>' + E(S.command ? S.command.health.text : "") + " This page refreshes by itself.</p>";
   }
   function needRows(limit) {
-    var d = cData(), rows = d.companies.filter(function (c) { return c.unconfirmed || ["draft_ready", "reply", "interview", "offer"].indexOf(c.status) >= 0; });
+    var d = cData(), rows = d.companies.filter(function (c) { return c.needs; });
     return rows.slice(0, limit);
   }
   function eTodayView() {
     var c = S.command, d = cData();
     if (!c) return '<p class="e-dim">Loading…</p>';
-    var n = c.needs.length;
-    var h = '<div class="e-hero"><section class="e-panel e-need" aria-labelledby="e-h1"><h1 id="e-h1">' + (n ? n + (n === 1 ? " thing needs" : " things need") + " you" : "Nothing needs you right now") + '</h1><p class="e-lede">Nothing is sent until you press Approve. ' + (n ? "About " + c.needs_mins + " minutes." : "Friday keeps working.") + "</p>";
+    var n = c.needs_companies != null ? c.needs_companies : c.needs.length;
+    var h = '<div class="e-hero"><section class="e-panel e-need" aria-labelledby="e-h1"><h1 id="e-h1">' + (n ? n + (n === 1 ? " company needs" : " companies need") + " you" : "Nothing needs you right now") + '</h1><p class="e-lede">Nothing is sent until you press Approve. ' + (n ? "About " + c.needs_mins + " minutes." : "Friday keeps working.") + "</p>";
     if (n) h += '<h2 class="e-subh">Next for you</h2><ol class="e-tasks">' + c.needs.map(function (x, i) { return '<li><div><b>' + E(x.title) + "</b><span>" + E(x.why) + " About " + x.mins + ' min.</span></div><button type="button" class="' + (i === 0 ? "e-btn primary" : "e-btn") + '" data-dn-act="goto" data-to="' + x.go + '" data-fk="need-' + x.id + '">' + E(x.btn) + "</button></li>"; }).join("") + "</ol>";
     var rows = needRows(4);
     if (rows.length) h += '<h2 class="e-subh">Companies waiting on you</h2><ul class="e-next">' + rows.map(function (r) { return '<li><button type="button" class="e-nrow" data-dn-act="company" data-id="' + r.id + '" data-fk="nx-' + r.id + '" title="' + E(r.name) + '">' + gradeBadge(r.grade) + '<span class="e-nm"><b>' + E(r.name) + '</b><small>' + E(r.next) + "</small></span>" + eChip(r) + '<span class="e-arrow" aria-hidden="true">›</span></button></li>'; }).join("") + "</ul>";
@@ -613,7 +635,7 @@
     var h = '<div class="e-pageh"><div><h1>Companies</h1><p class="e-dim">Fit grades: A is 80 or more, B is 70 to 79, C is a near miss (60 to 69).</p></div></div>';
     if (!all.length) return h + '<section class="e-panel e-empty"><h2>0 companies</h2><p>Add the 178 starter companies, or add a sheet of companies.</p><div class="e-btns"><button type="button" class="e-btn primary" data-dn-act="seed" data-fk="co-seed">Add the starter companies</button><button type="button" class="e-btn" data-dn-act="goto" data-to="sheets" data-fk="co-sheets">Add a sheet</button></div></section>';
     var cur = TABS.filter(function (t) { return t[0] === S.ctab; })[0] || TABS[0];
-    var countOf = function (t) { return t[2] ? all.filter(function (c) { return t[2].indexOf(c.status) >= 0 || (t[0] === "needs" && c.unconfirmed); }).length : all.length; };
+    var countOf = function (t) { return t[0] === "needs" ? all.filter(function (c) { return c.needs; }).length : t[2] ? all.filter(function (c) { return t[2].indexOf(c.status) >= 0; }).length : all.length; };
     h += '<div class="e-controls"><div class="e-tabs2" role="tablist" aria-label="Status">' + TABS.map(function (t) { return '<button type="button" role="tab" class="e-tab2" aria-selected="' + (S.ctab === t[0]) + '" data-dn-act="ctab" data-to="' + t[0] + '" data-fk="ct-' + t[0] + '">' + t[1] + ' <span class="e-n">' + countOf(t) + "</span></button>"; }).join("") + "</div>";
     h += '<div class="e-gradef" role="group" aria-label="Fit"><span>Fit</span>' + [["", "All"], ["A", "A"], ["B", "B"], ["C", "C"]].map(function (g) { return '<button type="button" aria-pressed="' + (S.cgrade === g[0]) + '" data-dn-act="cgrade" data-to="' + g[0] + '" data-fk="cg-' + (g[0] || "all") + '">' + g[1] + "</button>"; }).join("") + "</div>";
     h += '<label class="e-search"><span class="vh">Search</span><input type="search" value="' + E(S.cq) + '" maxlength="80" placeholder="Search companies" data-dn-cq="1" data-fk="cq"></label></div>';
@@ -635,7 +657,8 @@
   function eFiltered() {
     var all = cData().companies, t = TABS.filter(function (x) { return x[0] === S.ctab; })[0] || TABS[0], q = S.cq.trim().toLowerCase();
     var rows = all.filter(function (c) {
-      if (t[2] && t[2].indexOf(c.status) < 0 && !(t[0] === "needs" && c.unconfirmed)) return false;
+      if (t[0] === "needs") { if (!c.needs) return false; }
+      else if (t[2] && t[2].indexOf(c.status) < 0) return false;
       if (S.cgrade && c.grade !== S.cgrade) return false;
       if (S.cstep && (c.step || []).indexOf(S.cstep) < 0) return false;
       return !q || (c.name + " " + c.country + " " + c.source).toLowerCase().indexOf(q) >= 0;
@@ -658,7 +681,11 @@
     if (c.fit) left += '<section class="e-panel e-card"><h2>Why it fits</h2><p class="e-dim">' + E(c.fit.why || "") + "</p><ul class=\"e-factors\">" + c.fit.parts.map(function (p) { return '<li class="e-factor' + (p.weak ? " weak" : "") + '"><div class="e-row"><span>' + E(p.label) + '</span><b>' + p.got + " <small>of " + p.max + '</small></b></div><div class="e-bar2" role="img" aria-label="' + E(p.label) + " " + p.got + " of " + p.max + '"><i style="width:' + Math.round(p.got / p.max * 100) + '%"></i></div></li>'; }).join("") + "</ul></section>";
     if (c.fit && c.fit.gap) left += '<section class="e-panel e-card"><h2>Gaps</h2><ul class="e-gaps"><li><b>What Friday leaves out</b><span>' + E(c.fit.gap) + "</span></li></ul></section>";
     var roles = c.roles || [];
-    if (roles.length) left += '<section class="e-panel e-card"><h2>Open roles here</h2><ul class="e-roles">' + roles.map(function (x) { return "<li><div><b>" + E(U.cut(x.title, 70)) + '</b><span>' + E(U.cut(x.location || "", 50)) + "</span></div>" + (x.score != null ? '<span class="e-chip working">' + x.score + "</span>" : "") + link(x.url, "Open the post") + "</li>"; }).join("") + "</ul></section>";
+    if (roles.length) {
+      var roleLi = function (x) { return "<li><div><b>" + E(U.cut(x.title, 70)) + '</b><span>' + E(U.cut(x.location || "", 50)) + "</span></div>" + (x.score != null ? '<span class="e-chip working">' + x.score + "</span>" : "") + link(x.url, "Open the post") + "</li>"; };
+      var good = roles.filter(function (x) { return x.match; }), rest = roles.filter(function (x) { return !x.match; }), first = good.slice(0, 5), more = good.slice(5).concat(rest);
+      left += '<section class="e-panel e-card"><h2>Open roles here</h2><p class="e-dim">' + (good.length ? good.length + " of " + (c.roles_total || roles.length) + " roles match your titles." : "No role matches your titles. " + (c.roles_total || roles.length) + " other roles are open.") + '</p><ul class="e-roles">' + first.map(roleLi).join("") + "</ul>" + (more.length ? '<details class="e-more2"><summary>Show all ' + (c.roles_total || roles.length) + " roles (" + more.length + ' more)</summary><ul class="e-roles">' + more.map(roleLi).join("") + "</ul></details>" : "") + "</section>";
+    }
     left += eMoreCards(c);
     return back + '<div class="e-detail"><div class="e-dleft">' + left + "</div>" + eEmailCard(c) + "</div>";
   }
@@ -763,7 +790,7 @@
       if (!b) return;
       if (b.tagName === "A") e.preventDefault();
       var a = b.getAttribute("data-dn-act"), id = b.getAttribute("data-id");
-      if (a === "goto") { S.section = b.getAttribute("data-to"); draw(); var h = root.querySelector("h2[tabindex]"); if (h) h.focus({ preventScroll: true }); return; }
+      if (a === "goto") { S.section = b.getAttribute("data-to"); draw(); if (LIGHT_SECTIONS.indexOf(S.section) < 0) load().then(draw); var h = root.querySelector("h2[tabindex]"); if (h) h.focus({ preventScroll: true }); return; }
       if (a === "pause") return void act("pause", "…", function () { return call("POST", "/pause", { paused: !(S.status && S.status.paused) }); });
       if (a === "approve" || a === "approve-anyway") {
         var ed = editedValues(id), p = Promise.resolve(), anyway = a === "approve-anyway";
@@ -789,7 +816,8 @@
       if (a === "removeex") return void U.confirmBox("Remove this example?", ["Friday deletes the text of this email. You cannot get it back."], "Remove it").then(function (yes) { if (yes) act("k" + id, "…", function () { return call("POST", "/profile/examples/" + id, { state: "remove" }); }); });
       if (a === "useprofile") return void act("useprofile", "…", function () { return call("POST", "/profile/approve", {}); }).then(function (r) { if (r) say("Profile saved. Friday writes in your style now."); });
       if (a === "tickall") { var ids = (S.cv.facts || []).map(function (f) { return f.id; }); return void act("tick", "…", function () { return call("POST", "/cv/facts/tick", { ids: ids, ticked: b.getAttribute("data-ticked") === "1" }); }); }
-      if (a === "delfact") return void act("d" + id, "…", function () { return call("DELETE", "/cv/facts/" + id); });
+      if (a === "delfact") return void U.confirmBox("Delete this fact?", ["Friday will not use it in any email. You can add it again."], "Delete it").then(function (yes) { if (yes) act("d" + id, "…", function () { return call("DELETE", "/cv/facts/" + id); }); });
+      if (a === "mergefacts") return void act("merge", "…", function () { return call("POST", "/cv/facts/merge", {}); }).then(function (r) { if (r) say(r.removed + " repeated rows removed. Your ticks stay."); });
       if (a === "cvtext") { var t = root.querySelector("[data-dn-cvtext]"); return void act("cv", "…", function () { return call("POST", "/cv/text", { text: t ? t.value : "" }); }); }
       if (a === "seed") return void act("seed", "…", function () { return call("POST", "/dataset/import", { seed: true }); });
       if (a === "copen" || a === "company") { if (id && id !== "undefined") return void openCompany(parseInt(id, 10)); return; }
@@ -928,7 +956,7 @@
     S.onChange = o && o.onChange;
     if (S.started || B.mock) return;
     S.started = true;
-    S.timer = setInterval(function () { if (!document.hidden && S.shown) load().then(draw); else if (!document.hidden && S.loaded) load(); }, 20000);
+    S.timer = setInterval(function () { if (!document.hidden && S.shown) load().then(draw); else if (!document.hidden && S.loaded) load(); }, 45000);
   }
   function count() {
     var n = S.loaded && S.status ? needsYou().length + (S.outbox.failed_drafts || []).length : 0;

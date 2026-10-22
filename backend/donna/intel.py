@@ -348,7 +348,11 @@ class Intel:
         replies = {r["key"]: r for r in db.query("SELECT key, kind FROM company_replies ORDER BY ts")}
         invites = {r["key"] for r in db.query("SELECT key FROM company_replies WHERE kind='invite'")}
         talk = {r["key"] for r in db.query("SELECT key FROM company_status WHERE status IN ('interview','offer')")} | invites
-        jobs = {j["id"]: j for j in self.d.job_fetch.store.all()}
+        ids = [o["job_id"] for o in rows if o["job_id"]]
+        jobs = {}
+        if ids:
+            marks = ",".join("?" * len(ids))
+            jobs = {j["id"]: j for j in db.query(f"SELECT id, source, title FROM jobs WHERE id IN ({marks})", tuple(ids))}
         dims: dict[str, dict[str, dict]] = {"source": {}, "title": {}, "route": {}}
         now = self.d.clock()
         resolved = 0
@@ -385,13 +389,12 @@ class Intel:
         if outc["enough"]:
             best = [x for x in outc["by"]["source"] if x["interviews"]][:3]
         applied_keys = {a["company_norm"] for a in db.query("SELECT company_norm FROM applied")}
-        scores = self.d.scorer.table()
         top = []
-        for j in self.d.job_fetch.store.live():
-            s = scores.get(j["id"]) or {}
-            if s.get("total") is None or s["total"] < 50 or j["company_norm"] in applied_keys:
+        for j in db.query("SELECT j.company, j.company_norm, j.title, s.total, s.state FROM jobs j JOIN job_scores s ON s.job_id=j.id "
+                          "WHERE j.state='live' AND s.total IS NOT NULL AND s.total>=50 ORDER BY s.total DESC LIMIT 200"):
+            if j["company_norm"] in applied_keys:
                 continue
-            top.append({"company": j["company"], "title": j["title"], "score": s["total"], "state": s.get("state", "")})
+            top.append({"company": j["company"], "title": j["title"], "score": j["total"], "state": j["state"] or ""})
         top.sort(key=lambda x: -x["score"])
         return {"week_from": date.fromtimestamp(week).isoformat(), "applied": applied, "followups": followups, "replies": sum(rk.values()),
                 "reply_kinds": rk, "interviews": interviews, "best_sources": best,

@@ -265,6 +265,13 @@ class JobStore:
             r["sources"] = sorted({cp["source"] for cp in r["copies"]}, key=lambda s: (rank(s), s))
         return rows
 
+    def live_of(self, company_norm: str) -> list[dict]:
+        """Live jobs of one company: one small query, not the whole store (DJ14LF)."""
+        rows = self.db.query("SELECT * FROM jobs WHERE state='live' AND company_norm=? ORDER BY posted DESC, id DESC", (company_norm,))
+        for r in rows:
+            r["extra"] = json.loads(r["extra"] or "{}")
+        return rows
+
     def get(self, job_id: int) -> dict | None:
         return next((r for r in self._rows(None) if r["id"] == job_id), None)
 

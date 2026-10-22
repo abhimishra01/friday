@@ -49,8 +49,11 @@ import binascii
 import json
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, HTTPException, Request
+import re
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse
 
 from ..control.guard import Rejected
 from ..donna import blocklist as blocklist_mod, home as home_mod, sender as sender_mod, status as status_mod
@@ -70,8 +73,37 @@ def _first_words(text: str, n: int = 80) -> str:
     return " ".join((text or "").split())[:n]
 
 
+_OLD_NAME = re.compile(r"(?<![A-Za-z_])Donna(?![A-Za-z_])")
+
+
+def friday(x):
+    """Text saved before the rename still says Friday. A person sees Friday (DJ14LF). Applies to every string in a reply."""
+    if isinstance(x, str):
+        return _OLD_NAME.sub("Friday", x)
+    if isinstance(x, list):
+        return [friday(i) for i in x]
+    if isinstance(x, dict):
+        return {k: friday(v) for k, v in x.items()}
+    return x
+
+
+class FridayJSON(JSONResponse):
+    """Every reply of these routes passes through `friday`, so no old "Friday" text reaches the page."""
+
+    def render(self, content) -> bytes:
+        return super().render(friday(content))
+
+
 def build_donna_router(control, donna) -> APIRouter:
-    r = APIRouter(prefix="/api/donna")
+    async def clear_after_write(request: Request):
+        """Any change (a POST, PUT, PATCH or DELETE) drops the cached page data, so the next read is fresh (DJ14LF)."""
+        try:
+            yield
+        finally:
+            if request.method != "GET":
+                donna.cache_clear()
+
+    r = APIRouter(prefix="/api/donna", dependencies=[Depends(clear_after_write)], default_response_class=FridayJSON)
 
     def guard(request: Request, token: str | None = None):
         try:
@@ -129,7 +161,7 @@ def build_donna_router(control, donna) -> APIRouter:
     @r.get("")
     async def status(request: Request, token: str | None = None):
         guard(request, token)
-        return await run_in_threadpool(status_view)
+        return await run_in_threadpool(donna.cached, "status", 15, status_view)
 
     @r.put("/connect")
     async def connect(request: Request):
@@ -279,6 +311,12 @@ def build_donna_router(control, donna) -> APIRouter:
             raise HTTPException(404, "No such fact.")
         return await run_in_threadpool(donna.cv.page_data)
 
+    @r.post("/cv/facts/merge")
+    async def cv_merge(request: Request):
+        guard(request)
+        n = await run_in_threadpool(donna.cv.merge_repeats)
+        return {"ok": True, "removed": n, **await run_in_threadpool(donna.cv.page_data)}
+
     @r.delete("/cv/facts/{fact_id}")
     async def cv_remove(fact_id: int, request: Request):
         guard(request)
@@ -317,7 +355,8 @@ def build_donna_router(control, donna) -> APIRouter:
     async def command(request: Request, span: str = "today", token: str | None = None):
         guard(request, token)
         from ..donna import command as command_mod
-        return await run_in_threadpool(command_mod.data, donna, "week" if span == "week" else "today")
+        sp = "week" if span == "week" else "today"
+        return friday(await run_in_threadpool(donna.cached, "command:" + sp, 20, lambda: command_mod.data(donna, sp)))
 
     # ---- search and apply intelligence (DJ14K) ----
     @r.get("/digest")
@@ -326,7 +365,7 @@ def build_donna_router(control, donna) -> APIRouter:
 
         def view():
             return {**donna.intel.digest(), "outcomes": donna.intel.outcomes(), "connections": donna.intel.connection_count()}
-        return await run_in_threadpool(view)
+        return friday(await run_in_threadpool(donna.cached, "digest", 60, view))
 
     @r.post("/connections")
     async def connections_upload(request: Request):
@@ -351,7 +390,7 @@ def build_donna_router(control, donna) -> APIRouter:
     @r.get("/board")
     async def board_view(request: Request, token: str | None = None):
         guard(request, token)
-        return await run_in_threadpool(donna.board.page_data)
+        return friday(await run_in_threadpool(donna.cached, "board", 20, donna.board.page_data))
 
     @r.get("/board/{cid}")
     async def board_company(cid: int, request: Request):
@@ -359,7 +398,7 @@ def build_donna_router(control, donna) -> APIRouter:
         out = await run_in_threadpool(donna.board.company, cid)
         if not out:
             raise HTTPException(404, "No such company.")
-        return out
+        return friday(out)
 
     @r.post("/board/{cid}/status")
     async def board_status(cid: int, request: Request):
@@ -400,7 +439,7 @@ def build_donna_router(control, donna) -> APIRouter:
     @r.get("/sheets")
     async def sheets(request: Request, token: str | None = None):
         guard(request, token)
-        return await run_in_threadpool(donna.sheets.page_data)
+        return friday(await run_in_threadpool(donna.sheets.page_data))
 
     @r.post("/sheets")
     async def sheets_add(request: Request):
@@ -507,7 +546,10 @@ def build_donna_router(control, donna) -> APIRouter:
     # ---- the outbox ----
     def outbox_view() -> dict:
         now = donna.sender.now()
-        rows = donna.sender.list()
+        # Open rows, and only the 30 newest closed rows: not the whole history, one row at a time (DJ14LG).
+        recent_ids = [r["id"] for r in donna.db.query(
+            "SELECT id FROM outbox WHERE state NOT IN (" + ",".join("?" * len(OPEN)) + ") ORDER BY id DESC LIMIT 30", tuple(OPEN))]
+        rows = donna.sender.list(*OPEN) + [donna.sender.get(i) for i in reversed(recent_ids)]
         for it in rows:
             it["undo_left"] = max(0.0, round((it["undo_until"] or 0) - now, 1)) if it["state"] == "undo" else 0
         scores, cv_name = donna.scorer.table(), (donna.cv.meta() or {}).get("filename") or ""
@@ -653,7 +695,7 @@ def build_donna_router(control, donna) -> APIRouter:
     @r.get("/events")
     async def events(request: Request, token: str | None = None):
         guard(request, token)
-        return await run_in_threadpool(donna.db.events, 100)
+        return friday(await run_in_threadpool(donna.db.events, 100))
 
     # ---- settings ----
     def settings_view() -> dict:

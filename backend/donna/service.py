@@ -60,6 +60,9 @@ class Donna:
             factories = simmail.factories(settings)      # a simulation talks to the fake post office, never to a real host
         # A sealed `claude -p` run: no tools, no MCP, no settings (the mail module's run_claude). Tests pass a fake runner.
         self.runner = runner or (lambda prompt, model, effort: brain.run_claude(settings.claude_bin, prompt, model, effort, run_root=settings.run_dir))
+        self._cache: dict = {}
+        self._cache_lock = threading.Lock()
+        self._key_locks: dict = {}
         self._intel = self._board = self._sheets = self._learner = self._cv = self._dataset = self._jobs = self._scorer = self._router = self._writer = self._sender = None
         self._triage: threading.Thread | None = None
         self.mail = mail.DonnaMail(self.cfg, factories, self.is_paused)
@@ -134,6 +137,28 @@ class Donna:
             from .dataset import Dataset
             self._dataset = Dataset(self)
         return self._dataset
+
+    def cached(self, key: str, ttl: float, fn):
+        """Page data that is costly to build is kept for `ttl` seconds. Any write through the API clears it (DJ14LF). Two requests for the
+        same key at the same moment share one build: the second waits for the first (DJ14LG)."""
+        with self._cache_lock:
+            hit = self._cache.get(key)
+            if hit and time.time() - hit[0] < ttl:
+                return hit[1]
+            lock = self._key_locks.setdefault(key, threading.Lock())
+        with lock:
+            with self._cache_lock:
+                hit = self._cache.get(key)
+                if hit and time.time() - hit[0] < ttl:
+                    return hit[1]
+            value = fn()
+            with self._cache_lock:
+                self._cache[key] = (time.time(), value)
+            return value
+
+    def cache_clear(self) -> None:
+        with self._cache_lock:
+            self._cache.clear()
 
     @property
     def intel(self):
