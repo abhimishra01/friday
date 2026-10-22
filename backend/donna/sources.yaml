@@ -1,0 +1,173 @@
+# Donna's job sources: the record (PLAN-FINAL row 34, JOB-SOURCES section 2). Checked by Felicity on 2026-10-21.
+# Code limits live in each module in backend/donna/sources/ (TIER, MAX_CALLS). A test checks this file agrees with them.
+# tier: daily (automated, once a day), once_a_day (terms unverified: never more than once a day), manual (never by machine).
+# If Donna ever ships inside a product others use, check these terms again (aggregation and attribution rules).
+# No ATS "submit application" endpoint is ever called.
+
+greenhouse:
+  tier: daily
+  endpoint: https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true
+  terms: https://docs.greenhouse.io/job-board.html
+  checked: 2026-10-21
+  rate_limit: none published; one GET per board per day
+  attribution: none required (job board data is public)
+
+lever:
+  tier: daily
+  endpoint: https://api.lever.co/v0/postings/{site}?mode=json
+  terms: https://github.com/lever/postings-api
+  checked: 2026-10-21
+  rate_limit: only for apply POSTs (2 per second); Donna never posts; one GET per board per day
+  attribution: none required (postings may be scraped by third parties)
+
+lever_eu:
+  tier: daily
+  endpoint: https://api.eu.lever.co/v0/postings/{site}?mode=json
+  terms: https://github.com/lever/postings-api
+  checked: 2026-10-21
+  rate_limit: as lever; one GET per board per day
+  attribution: none required
+
+ashby:
+  tier: once_a_day
+  endpoint: https://api.ashbyhq.com/posting-api/job-board/{name}?includeCompensation=true
+  terms: https://developers.ashbyhq.com/docs/public-job-posting-api
+  checked: 2026-10-21
+  rate_limit: none published; terms unverified, at most once a day
+  attribution: none stated
+
+workable:
+  tier: once_a_day
+  endpoint: https://apply.workable.com/api/v1/widget/accounts/{subdomain}
+  terms: https://dev.to/zsevic/integration-with-workable-public-jobs-api-3nk4
+  checked: 2026-10-21
+  rate_limit: none published; terms unverified (community source), at most once a day
+  attribution: none stated
+
+smartrecruiters:
+  tier: once_a_day
+  endpoint: https://api.smartrecruiters.com/v1/companies/{companyId}/postings?country=in&limit=100
+  terms: https://developers.smartrecruiters.com/customer-api/posting-api/
+  checked: 2026-10-21
+  rate_limit: none published; docs mention a key, keyless read works; at most once a day, read lightly
+  attribution: none stated
+
+recruitee:
+  tier: once_a_day
+  endpoint: https://{company}.recruitee.com/api/offers/
+  terms: https://docs.recruitee.com/reference/offers
+  checked: 2026-10-21
+  rate_limit: none published; terms unverified, at most once a day
+  attribution: none stated
+
+hn:
+  tier: daily
+  endpoint: https://hn.algolia.com/api/v1/search_by_date?tags=story,author_whoishiring then https://hn.algolia.com/api/v1/items/{id}
+  terms: https://github.com/HackerNews/API
+  checked: 2026-10-21
+  rate_limit: not stated; Donna finds the thread on the 1st to 3rd and reads it once a week (about 5 calls a month), cap 4 a day
+  attribution: link to the HN post
+
+himalayas:
+  tier: daily
+  endpoint: https://himalayas.app/jobs/api/search?q={keyword}&country=IN and &worldwide=true
+  terms: https://himalayas.app/api
+  checked: 2026-10-21
+  rate_limit: shared keyless allowance (free key 60 a minute, 10,000 a day); Donna cap 10 a day
+  attribution: show a link to Himalayas as the source; use applicationLink unchanged; never pass jobs to other boards; remove expired jobs
+
+weworkremotely:
+  tier: daily
+  endpoint: https://weworkremotely.com/categories/remote-{full-stack,back-end,front-end}-programming-jobs.rss
+  terms: https://weworkremotely.com/remote-job-rss-feed
+  checked: 2026-10-21
+  rate_limit: not stated; 3 feeds a day, cap 12 a day
+  attribution: attribute and link back to We Work Remotely; applying goes through the WWR site
+
+remoteok:
+  tier: daily
+  endpoint: https://remoteok.com/api
+  terms: notice in the first item of https://remoteok.com/api
+  checked: 2026-10-21
+  rate_limit: not stated; one call a day, cap 4 a day
+  attribution: link back to Remote OK and name it as the source; no logo
+
+remotive:
+  tier: daily
+  endpoint: https://remotive.com/api/remote-jobs?category=software-dev
+  terms: https://github.com/remotive-io/remote-jobs-api
+  checked: 2026-10-21
+  rate_limit: at most 4 calls a day (their notice); enforced in code
+  attribution: link back and name Remotive; jobs are 24 hours late; never send their jobs to other job boards; no sign-up collection
+
+arbeitnow:
+  tier: daily
+  endpoint: https://arbeitnow.com/api/job-board-api?page=1
+  terms: notice in the API response
+  checked: 2026-10-21
+  rate_limit: asks users not to abuse it; one page a day, cap 4 a day
+  attribution: link back appreciated
+
+linkedin:
+  tier: manual
+  endpoint: none (search-by-hand card)
+  terms: https://www.linkedin.com/robots.txt
+  checked: 2026-10-21
+  rate_limit: n/a
+  attribution: n/a; automated access is prohibited
+
+indeed:
+  tier: manual
+  endpoint: none (search-by-hand card)
+  terms: Indeed terms (reported to bar automated tools for job listings)
+  checked: 2026-10-21
+  rate_limit: n/a
+  attribution: n/a
+
+naukri:
+  tier: manual
+  endpoint: none (search-by-hand card)
+  terms: https://www.naukri.com/termsconditions
+  checked: 2026-10-21
+  rate_limit: n/a
+  attribution: n/a; automated crawling is prohibited
+
+upwork:
+  tier: manual
+  endpoint: none (search-by-hand card)
+  terms: https://support.upwork.com/hc/en-us/articles/43342677368467-Use-bots-and-other-automation-properly
+  checked: 2026-10-21
+  rate_limit: n/a
+  attribution: n/a; scraping is off-limits even with a key
+
+wellfound:
+  tier: manual
+  endpoint: none (search-by-hand card)
+  terms: https://wellfound.com/robots.txt
+  checked: 2026-10-21
+  rate_limit: n/a
+  attribution: n/a; robots.txt blocks job paths
+
+yc:
+  tier: manual
+  endpoint: none (search-by-hand card)
+  terms: none found (bot GET refused with 406)
+  checked: 2026-10-21
+  rate_limit: n/a
+  attribution: n/a
+
+contra:
+  tier: manual
+  endpoint: none (search-by-hand card)
+  terms: not read
+  checked: 2026-10-21
+  rate_limit: n/a
+  attribution: n/a
+
+jooble:
+  tier: manual
+  endpoint: none (search-by-hand card)
+  terms: https://jooble.org/api/about
+  checked: 2026-10-21
+  rate_limit: n/a
+  attribution: n/a; the API is for webmasters

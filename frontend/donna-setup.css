@@ -1,0 +1,19 @@
+.su{max-width:46rem;margin:0 auto;padding:0 16px 64px}
+.su h1{margin:1.2rem 0 .3rem}
+.su-lead{color:var(--ink-2);margin:0 0 1.4rem}
+.su-steps{list-style:none;margin:0;padding:0;display:grid;gap:14px}
+.su-step{border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:16px 18px}
+.su-step h2{margin:0 0 .3rem;font-size:1.1rem;display:flex;gap:10px;align-items:center}
+.su-step h2 .n{display:inline-grid;place-items:center;width:1.7rem;height:1.7rem;border-radius:50%;background:var(--accent-soft);color:var(--accent-text);font-size:.9rem}
+.su-step.done h2 .n{background:var(--ok);color:#fff}
+.su-step p{margin:.35rem 0;color:var(--ink-2)}
+.su-step label{display:block;margin:.6rem 0;font-size:.95rem}
+.su-step input[type=text],.su-step input[type=email],.su-step input[type=password],.su-step select,.su-step textarea{display:block;width:100%;box-sizing:border-box;margin-top:.25rem;padding:.55rem .65rem;border:1px solid var(--line-strong);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+.su-step .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(13rem,1fr));gap:0 14px}
+.su-step ul.facts{list-style:none;margin:.4rem 0;padding:0;max-height:18rem;overflow:auto}
+.su-step ul.facts li{padding:.25rem 0;border-bottom:1px solid var(--line)}
+.su-step ul.facts label{margin:0;display:flex;gap:8px;align-items:flex-start}
+.su-ok{color:var(--ok)}
+.su-bad{color:var(--bad)}
+.su-go{margin-top:.5rem}
+@media (max-width:480px){.su-step{padding:14px}}

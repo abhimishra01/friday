@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Friday</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%234357D6%27/%3E%3Ctext x=%2716%27 y=%2723%27 font-size=%2720%27 text-anchor=%27middle%27 fill=%27white%27 font-family=%27sans-serif%27%3ED%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="donna.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to the main content</a>
+<div class="wrap">
+  <header class="top">
+    <p class="brand"><i aria-hidden="true"></i>Friday</p>
+    <nav class="nav" aria-label="Main"><a href="/setup">Setup</a></nav>
+    <button class="btn" type="button" data-k="theme-btn" aria-pressed="false">Light</button>
+  </header>
+  <main id="main">
+    <section class="screen donna" data-tab="donna" aria-labelledby="h-donna" data-theme="dark">
+      <div class="sh"><h1 id="h-donna">Friday</h1><p>Friday looks for jobs and writes your applications from your own Gmail. Every email waits here for you. She sends nothing until you press Approve.</p></div>
+      <div class="panel chat-off" data-dn="off" hidden>
+        <h2>Friday is not answering</h2>
+        <p>Close this window, then start Friday again with the Start Friday file. Then reload this page.</p>
+      </div>
+      <p class="answer bad" role="alert" data-dn="err" hidden></p>
+      <p class="vh" role="status" data-dn="say"></p>
+      <div class="dn" data-dn="root" hidden></div>
+    </section>
+  </main>
+</div>
+<script src="popup.js"></script>
+<script src="donna-shell.js"></script>
+<script src="donna.js"></script>
+<script src="donna-app.js"></script>
+
+</body>
+</html>
