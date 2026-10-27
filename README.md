@@ -3,6 +3,10 @@
 Friday looks for jobs and writes your job applications. She uses your own Claude Code, your own Gmail and your own CV.
 She runs on your computer. Nothing leaves it except the emails you approve, the job pages she reads, and the text she gives to your own Claude Code.
 
+![Friday's dashboard](docs/dashboard.png)
+
+*The Today page, shown with made-up sample jobs. It lists what needs your approval and what Friday did today.*
+
 **Friday never sends an email on her own.** Every email waits on a page for you. You press Approve. Then you have 10 seconds to undo.
 
 ## What you need
